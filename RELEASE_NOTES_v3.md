@@ -18,10 +18,8 @@
 
 ## 離線版
 
-[Google Drive 下載資料夾](https://drive.google.com/drive/folders/19y5hVg7YqX1hIp3G9Nr9b5LgB7dVEhV0)
-
-請下載全部四個 `.bin` 分割檔、重組批次檔及說明文字檔，再執行
-`reassemble_selected_courses.bat`。
+請到 [GitHub Releases](https://github.com/yaotong110329/e-learning-course-assistant/releases/tag/v3.0.0)
+下載完整 Windows 離線 ZIP。解壓縮後執行 `離線啟動.bat`，不需要重組分割檔。
 
 完整 ZIP SHA-256：
 

@@ -17,11 +17,8 @@ Windows 桌面工具，使用 Python、PySide6 與 Playwright 協助操作 E 等
 
 ## 下載離線版
 
-[Google Drive 下載資料夾](https://drive.google.com/drive/folders/19y5hVg7YqX1hIp3G9Nr9b5LgB7dVEhV0)
-
-下載資料夾內全部 6 個檔案並放在同一位置，執行
-`reassemble_selected_courses.bat`。重組 ZIP 後解壓縮，再執行
-`離線啟動.bat`。
+請到 [GitHub Releases](https://github.com/yaotong110329/e-learning-course-assistant/releases/latest)
+下載最新版 Windows 離線 ZIP。完整解壓縮後執行 `離線啟動.bat`。
 
 ## 原始碼執行
 
