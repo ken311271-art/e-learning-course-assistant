@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local credentials and browser sessions
+user_data/
+user_data_chrome/
+tmp_verify_user_data/
+tmp_verify_session_user_data/
+credentials.json
+*.secret.json
+
+# Runtime data and diagnostics
+logs/
+*.log
+resources/element_probe.json
+
+# Build and release artifacts
+build/
+build_*/
+dist/
+dist_*/
+outputs/
+*.zip
+*.bin
+*.exe
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

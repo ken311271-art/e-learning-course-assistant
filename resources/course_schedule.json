@@ -1,0 +1,5 @@
+{
+  "description": "play_minutes 是每個正式章節的播放分鐘數；selected_course_titles 留空代表全部未完成課程。",
+  "play_minutes": 20,
+  "selected_course_titles": []
+}

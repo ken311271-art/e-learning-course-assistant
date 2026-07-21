@@ -1,35 +1,47 @@
 # E 等公務員學習助手
 
-這是一個 Windows 桌面工具，用來協助操作 E 等公務員學習平台。
+Windows 桌面工具，使用 Python、PySide6 與 Playwright 協助操作 E 等公務員學習平台。
 
-## 主要功能
+## 目前功能
 
-- 啟動 Chrome 瀏覽器
-- 偵測登入狀態
-- 協助登入 E 等公務員
-- 掃描未完成課程
-- 協助進入課程與播放章節
-- 選課系統，可建立選課條件、搜尋課程並報名勾選課程
+- 啟動 Chrome 並保存登入 Session
+- 自動偵測登入狀態及進入個人專區
+- 跨頁掃描課程、閱讀時數與剩餘時數
+- 勾選要執行的課程，剩餘時數為零的課程不再進入
+- 目前執行中的課程使用不同顏色標示
+- 偵測影音、投影片與多種 SCORM 章節結構
+- 課程倒數、停止上課及返回課程介面
+- 自動處理閱讀閒置確認視窗，並在 Log 留下紀錄
+- 掃描符合閱讀時數且尚未填寫的問卷
+- 選課條件、搜尋課程與勾選報名
 
-## 使用方式
+## 下載離線版
 
-1. 下載 Release 裡的離線版 ZIP。
-2. 解壓縮整個資料夾。
-3. 執行 `離線啟動.bat` 及 `E等公務員學習助手.exe`。
-4. 第一次使用請先登入。
+[Google Drive 下載資料夾](https://drive.google.com/drive/folders/19y5hVg7YqX1hIp3G9Nr9b5LgB7dVEhV0)
 
-## 系統需求
+下載資料夾內全部 6 個檔案並放在同一位置，執行
+`reassemble_selected_courses.bat`。重組 ZIP 後解壓縮，再執行
+`離線啟動.bat`。
 
-- Windows 10 或更新版本
-- Google Chrome
-- 網路連線
+## 原始碼執行
+
+需求：Python 3.12+、Google Chrome、網路連線。
+
+```bat
+install.bat
+run.bat
+```
+
+## 專案結構
+
+- `core/`：瀏覽器、登入、課程掃描、上課、問卷與選課邏輯
+- `gui/`：PySide6 視窗及 WebChannel 溝通
+- `resources/ui/`：HTML、CSS、JavaScript 操作介面
+- `tools/`：不作答、不送出的診斷工具
 
 ## 注意事項
 
-- 此工具不包含 Chrome 瀏覽器本體，請先安裝 Google Chrome。
-- 登入狀態會保存在本機資料夾中，換電腦後需要重新登入。
-- 若網站頁面改版，部分功能可能需要更新。
-
-## 下載
-
-請到 GitHub Releases 下載最新版 ZIP。
+- 離線版已包含 Python 相依套件，但操作網站仍需要網路。
+- 不要只複製 EXE，請保留解壓縮後的完整資料夾。
+- `user_data*`、`logs`、偵測快照及帳密設定不會上傳 GitHub。
+- 網站改版後，Selector 或流程可能需要更新。

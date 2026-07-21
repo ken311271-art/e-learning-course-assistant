@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E 等公務員學習助手</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主要功能">
+      <div class="brand">
+        <span class="brand-mark">E</span>
+        <div>
+          <strong>學習助手</strong>
+          <small>公務員數位學習</small>
+        </div>
+      </div>
+      <nav class="nav-list">
+        <button class="nav-item active" data-page="login" type="button"><span>01</span>登入</button>
+        <button class="nav-item" data-page="study" type="button"><span>02</span>上課</button>
+        <button class="nav-item" data-page="enrollment" type="button"><span>03</span>選課</button>
+        <button class="nav-item" data-page="survey" type="button"><span>04</span>問卷</button>
+        <button class="nav-item" data-page="assessment" type="button"><span>05</span>測驗</button>
+      </nav>
+      <div class="sidebar-state">
+        <span id="sidebar-dot" class="state-dot"></span>
+        <span id="sidebar-state-text">瀏覽器未啟動</span>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">E 等公務員學習助手</p>
+          <h1 id="page-title">登入</h1>
+        </div>
+        <div class="status-strip" aria-label="系統狀態">
+          <span id="browser-badge" class="status-badge neutral">瀏覽器未啟動</span>
+          <span id="login-badge" class="status-badge neutral">尚未登入</span>
+        </div>
+      </header>
+
+      <main class="content">
+        <section id="page-login" class="page active" aria-labelledby="login-heading">
+          <div class="page-heading">
+            <div>
+              <h2 id="login-heading">登入資訊</h2>
+              <p>啟動 Chrome 後會先檢查既有登入工作階段。</p>
+            </div>
+          </div>
+
+          <div class="two-column-layout">
+            <section class="panel form-panel">
+              <h3>人事服務網</h3>
+              <div class="field-group">
+                <label for="account">帳號</label>
+                <input id="account" type="text" autocomplete="username" spellcheck="false">
+              </div>
+              <div class="field-group">
+                <label for="password">密碼</label>
+                <input id="password" type="password" autocomplete="current-password">
+              </div>
+              <label class="check-line" for="remember">
+                <input id="remember" type="checkbox">
+                <span>記住帳號密碼</span>
+              </label>
+              <div class="button-row">
+                <button id="login-button" class="button primary" type="button">登入</button>
+                <button id="check-login-button" class="button" type="button">偵測登入</button>
+              </div>
+            </section>
+
+            <section class="panel session-panel">
+              <div class="panel-title-row">
+                <h3>瀏覽器工作階段</h3>
+                <span id="session-state" class="inline-state">尚未啟動</span>
+              </div>
+              <dl class="status-list">
+                <div><dt>目前網址</dt><dd id="current-url">-</dd></div>
+                <div><dt>目前頁面</dt><dd id="current-page">-</dd></div>
+                <div><dt>目前狀態</dt><dd id="current-status">等待操作</dd></div>
+              </dl>
+              <div class="button-row bottom-actions">
+                <button id="start-browser-button" class="button primary" type="button">啟動瀏覽器</button>
+                <button id="close-browser-button" class="button danger" type="button">關閉瀏覽器</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="page-study" class="page" aria-labelledby="study-heading">
+          <div class="page-heading">
+            <div>
+              <h2 id="study-heading">上課</h2>
+              <p>掃描未完成課程，選擇課程或執行排程。</p>
+            </div>
+            <div class="study-metrics">
+              <div class="metric"><span>課程數</span><strong id="course-count">0</strong></div>
+              <div class="metric countdown-metric">
+                <span>本課剩餘</span>
+                <strong id="study-countdown">--:--:--</strong>
+                <small id="countdown-course">尚未開始</small>
+              </div>
+            </div>
+          </div>
+          <div class="command-bar">
+            <button id="scan-courses-button" class="button primary" type="button">掃描課程</button>
+            <button id="enter-course-button" class="button" type="button">進入選取課程</button>
+            <button id="inspect-player-button" class="button" type="button">偵測課程頁</button>
+            <button id="playback-button" class="button success" type="button">開始上課</button>
+            <button id="skip-course-button" class="button warning" type="button">跳過課程</button>
+            <button id="stop-playback-button" class="button danger" type="button">停止上課</button>
+          </div>
+          <section class="panel table-panel">
+            <div class="panel-title-row">
+              <h3>未完成課程</h3>
+              <span id="study-selection-label" class="muted">尚未選取</span>
+            </div>
+            <div class="table-scroll tall-table">
+              <table>
+                <thead><tr><th class="check-column">選取</th><th class="number-column">#</th><th>課程名稱</th><th>閱讀門檻</th><th>已閱讀</th><th>剩餘</th><th>測驗</th><th>問卷</th></tr></thead>
+                <tbody id="study-course-body"><tr class="empty-row"><td colspan="8">尚未掃描課程</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="detail-strip" aria-live="polite">
+            <strong>執行狀態</strong>
+            <span id="study-detail">等待操作</span>
+          </section>
+        </section>
+
+        <section id="page-enrollment" class="page" aria-labelledby="enrollment-heading">
+          <div class="page-heading">
+            <div>
+              <h2 id="enrollment-heading">選課</h2>
+              <p id="enrollment-subtitle">建立搜尋條件後前往選課中心查詢。</p>
+            </div>
+            <button id="back-to-conditions-button" class="button hidden" type="button">返回選課條件</button>
+          </div>
+
+          <div id="enrollment-conditions-view">
+            <section class="panel condition-form">
+              <h3>新增選課條件</h3>
+              <div class="condition-grid">
+                <div class="field-group keyword-field"><label for="condition-keyword">課程</label><input id="condition-keyword" type="text" placeholder="例如：人權、Excel、溝通技巧"></div>
+                <div class="field-group"><label for="condition-count">堂數</label><input id="condition-count" type="number" min="1" value="1"></div>
+                <div class="field-group"><label for="condition-hours-min">認證時數（最低）</label><input id="condition-hours-min" type="number" min="0" step="0.5" value="1"></div>
+                <div class="field-group"><label for="condition-hours-max">認證時數（最高）</label><input id="condition-hours-max" type="number" min="0" step="0.5" value="3"></div>
+              </div>
+              <div class="button-row">
+                <button id="add-condition-button" class="button primary" type="button">加入條件</button>
+                <button id="remove-condition-button" class="button" type="button">刪除選取條件</button>
+              </div>
+            </section>
+
+            <section class="panel table-panel condition-list-panel">
+              <div class="panel-title-row"><h3>選課條件清單</h3><span id="condition-count-label" class="muted">0 筆</span></div>
+              <div class="table-scroll condition-table-scroll">
+                <table>
+                  <thead><tr><th class="check-column">啟用</th><th>課程關鍵字</th><th>堂數</th><th>最低時數</th><th>最高時數</th></tr></thead>
+                  <tbody id="condition-body"><tr class="empty-row"><td colspan="5">尚未加入選課條件</td></tr></tbody>
+                </table>
+              </div>
+              <div class="button-row end-aligned"><button id="search-enrollment-button" class="button primary wide-button" type="button">搜尋課程</button></div>
+            </section>
+          </div>
+
+          <section id="enrollment-results-view" class="panel table-panel hidden">
+            <div class="panel-title-row"><h3>搜尋結果</h3><span id="enrollment-result-count" class="muted">0 門</span></div>
+            <div class="table-scroll results-table-scroll">
+              <table>
+                <thead><tr><th class="check-column">選取</th><th>關鍵字</th><th>課程名稱</th><th>時數</th><th>狀態</th><th>課程 ID</th></tr></thead>
+                <tbody id="enrollment-result-body"><tr class="empty-row"><td colspan="6">尚未搜尋課程</td></tr></tbody>
+              </table>
+            </div>
+            <div class="button-row end-aligned"><button id="enroll-button" class="button success wide-button" type="button">報名勾選課程</button></div>
+          </section>
+        </section>
+
+        <section id="page-survey" class="page" aria-labelledby="survey-heading">
+          <div class="page-heading">
+            <div><h2 id="survey-heading">問卷</h2><p>依照上課掃描結果，處理已達閱讀時數且尚未填寫的課程問卷。</p></div>
+            <button id="survey-button" class="button primary" type="button">處理達標未填問卷</button>
+          </div>
+          <section class="summary-grid" aria-label="問卷處理摘要">
+            <div><span>掃描</span><strong id="survey-scanned">0</strong></div>
+            <div><span>可填</span><strong id="survey-eligible">0</strong></div>
+            <div><span>已送出</span><strong id="survey-filled">0</strong></div>
+            <div><span>略過</span><strong id="survey-skipped">0</strong></div>
+            <div><span>失敗</span><strong id="survey-failed">0</strong></div>
+          </section>
+          <section class="panel activity-panel">
+            <div class="panel-title-row"><h3>處理紀錄</h3><span id="survey-state" class="muted">等待操作</span></div>
+            <div id="survey-activity" class="activity-list"><div class="empty-activity">尚無問卷處理紀錄</div></div>
+          </section>
+        </section>
+
+        <section id="page-assessment" class="page" aria-labelledby="assessment-heading">
+          <div class="page-heading">
+            <div><h2 id="assessment-heading">測驗</h2><p>逐門檢查可上課且仍有未答測驗的課程。</p></div>
+            <div class="metric"><span>待處理</span><strong id="assessment-count">0</strong></div>
+          </div>
+          <div class="command-bar">
+            <button id="scan-assessments-button" class="button primary" type="button">逐門檢查未答測驗</button>
+            <button id="enter-assessment-button" class="button" type="button">開啟選取課程</button>
+          </div>
+          <section class="panel table-panel">
+            <div class="panel-title-row"><h3>未答測驗課程</h3><span id="assessment-selection-label" class="muted">尚未選取</span></div>
+            <div class="table-scroll assessment-table-scroll">
+              <table>
+                <thead><tr><th class="number-column">#</th><th>課程名稱</th><th>上課狀態</th><th>測驗狀態</th><th>檢查結果</th></tr></thead>
+                <tbody id="assessment-body"><tr class="empty-row"><td colspan="5">尚未檢查測驗狀態</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <section id="log-drawer" class="log-drawer" aria-label="執行 Log">
+        <button id="log-toggle" class="log-header" type="button" aria-expanded="true">
+          <span><strong>執行 Log</strong><small id="log-count">0 筆</small></span>
+          <span id="log-toggle-label">收合</span>
+        </button>
+        <div id="log-content" class="log-content" aria-live="polite"></div>
+      </section>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
