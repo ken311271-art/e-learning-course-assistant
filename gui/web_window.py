@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
@@ -22,7 +22,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
-from core.automation import AutomationResult
+from core.automation import AutomationResult, AutomationStatus
 from core.browser import BrowserState, BrowserStatus
 from core.config import AppConfig
 from core.course import CourseInfo
@@ -130,6 +130,15 @@ class WebBridge(QObject):
 
         normalized = "".join(status.split())
         return any(marker in normalized for marker in ("未填", "未填寫", "尚未填"))
+
+    @staticmethod
+    def _is_assessment_eligible(course: CourseInfo) -> bool:
+        """Use the course scan's reading-time result as the assessment gate."""
+
+        return (
+            course.required_reading_seconds > 0
+            and course.studied_reading_seconds >= course.required_reading_seconds
+        )
 
     @Slot()
     def initialize(self) -> None:
@@ -259,18 +268,39 @@ class WebBridge(QObject):
 
     @Slot()
     def scanAssessments(self) -> None:  # noqa: N802
-        """Inspect assessment status without opening or answering questions."""
+        """Refresh assessment candidates from the most recent course scan only."""
 
-        if self._begin("scanAssessments", "正在逐門檢查未答測驗..."):
-            self._worker.scan_unanswered_assessments()
+        if not self._study_courses:
+            self._emit("error", message="請先到上課頁執行「掃描課程」。")
+            return
+        self._on_course_scan(self._study_courses)
 
     @Slot(int)
     def enterAssessmentCourse(self, index: int) -> None:  # noqa: N802
-        """Open the course selected on the assessment status page."""
+        """Open the selected qualified course directly at its assessment page."""
 
         course = self._require_index(index, self._assessment_courses, "請先選擇一門課程。")
-        if course is not None and self._begin("enterAssessment", f"正在開啟課程：{course.title}"):
-            self._worker.enter_course(course)
+        if course is not None and self._begin("enterAssessment", f"正在開啟測驗題目頁：{course.title}"):
+            self._worker.open_assessment_attempt(course)
+
+    @Slot()
+    def fillAssessmentAnswers(self) -> None:  # noqa: N802
+        """Read AI answer strings from clipboard and fill them without submission."""
+
+        clipboard = QGuiApplication.clipboard()
+        answer_text = clipboard.text().strip() if clipboard is not None else ""
+        if not answer_text:
+            self._emit("error", message="剪貼簿沒有答案字串。")
+            return
+        if self._begin("fillAssessmentAnswers", "正在填入剪貼簿答案；不會送出測驗..."):
+            self._worker.fill_assessment_answers(answer_text)
+
+    @Slot()
+    def submitAssessment(self) -> None:  # noqa: N802
+        """Submit the current assessment from the HTML GUI."""
+
+        if self._begin("submitAssessment", "正在送出測驗..."):
+            self._worker.submit_assessment()
 
     @Slot(str)
     def searchEnrollment(self, condition_lines: str) -> None:  # noqa: N802
@@ -333,10 +363,24 @@ class WebBridge(QObject):
 
     @Slot(object)
     def _on_course_scan(self, courses: list[CourseInfo]) -> None:
-        """Store study courses separately from assessment results."""
+        """Store course results and derive assessment candidates from reading time."""
 
         self._study_courses = list(courses)
-        self._emit("course_scan", courses=self._study_courses)
+        self._assessment_courses = [
+            replace(
+                course,
+                can_attend=True,
+                assessment_status="閱讀時數已達標",
+                inspection_note="依上課掃描的閱讀時數判斷；未逐門檢查測驗狀態。",
+            )
+            for course in self._study_courses
+            if self._is_assessment_eligible(course)
+        ]
+        self._emit(
+            "course_scan",
+            courses=self._study_courses,
+            assessment_courses=self._assessment_courses,
+        )
 
     @Slot(object)
     def _on_assessment_scan(self, courses: list[CourseInfo]) -> None:
@@ -347,9 +391,43 @@ class WebBridge(QObject):
 
     @Slot(object)
     def _on_automation_result(self, result: AutomationResult) -> None:
-        """Forward chapter, player, and playback status details."""
+        """Forward player details and copy a requested assessment page locally."""
+
+        notice: tuple[str, str] | None = None
+        if result.status == AutomationStatus.ASSESSMENT_OPENED:
+            copied = bool(result.assessment_text.strip())
+            result = self._copy_assessment_text(result)
+            if copied and "複製到剪貼簿失敗" not in result.message:
+                notice = ("題目已複製", "已複製題目，請至 AI 貼入並複製答案。")
+        elif result.status == AutomationStatus.ASSESSMENT_ANSWERS_FILLED:
+            notice = ("答案已填入", "已填入，請送出答案。")
 
         self._emit("automation_result", result=result)
+        if notice is not None:
+            self._emit("notice", title=notice[0], message=notice[1])
+
+    def _copy_assessment_text(self, result: AutomationResult) -> AutomationResult:
+        """Copy extracted assessment text from the worker into the OS clipboard."""
+
+        text = result.assessment_text.strip()
+        if not text:
+            return replace(
+                result,
+                message="已開啟測驗題目頁，但沒有可複製的題目文字。",
+            )
+        try:
+            clipboard = QGuiApplication.clipboard()
+            if clipboard is None:
+                raise RuntimeError("Windows 剪貼簿不可用")
+            clipboard.setText(text)
+        except Exception as exc:
+            self._logger.exception("測驗題目無法寫入剪貼簿。")
+            return replace(
+                result,
+                assessment_text="",
+                message=f"已開啟測驗題目頁，但複製到剪貼簿失敗：{exc}",
+            )
+        return replace(result, assessment_text="")
 
     @Slot(object)
     def _on_survey_result(self, result: SurveyResult) -> None:

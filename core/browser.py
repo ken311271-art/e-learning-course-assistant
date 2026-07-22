@@ -104,6 +104,19 @@ class BrowserController:
             self._mark_browser_disconnected("瀏覽器已被手動關閉。")
             return False
 
+    def set_active_page(self, page: Page) -> BrowserState:
+        """Keep the browser controller pointed at a popup opened by the user flow."""
+
+        try:
+            if page.is_closed():
+                raise BrowserControllerError("測驗頁已被關閉，請重新開啟題目頁。")
+        except BrowserControllerError:
+            raise
+        except Exception as exc:
+            raise BrowserControllerError(f"無法切換到測驗頁：{exc}") from exc
+        self._page = page
+        return self.refresh_state("已切換到目前測驗頁。")
+
     def start(self) -> BrowserState:
         """啟動 Chromium Persistent Context。
 
@@ -153,13 +166,13 @@ class BrowserController:
             "ignore_default_args": ["--enable-automation"],
             "args": [
                 "--disable-blink-features=AutomationControlled",
+                "--start-maximized",
                 "--autoplay-policy=no-user-gesture-required",
                 "--disable-features=IsolateOrigins,site-per-process",
             ],
-            "viewport": {
-                "width": self._config.browser.viewport_width,
-                "height": self._config.browser.viewport_height,
-            },
+            # Use the actual screen size in headful Chrome. A fixed viewport
+            # makes long assessment pages cramped despite a large window.
+            "viewport": None,
             "locale": "zh-TW",
             "timezone_id": "Asia/Taipei",
         }

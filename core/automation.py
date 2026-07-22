@@ -38,6 +38,9 @@ class AutomationStatus(str, Enum):
     """High-level status for course automation actions."""
 
     ENTERED_COURSE = "entered_course"
+    ASSESSMENT_OPENED = "assessment_opened"
+    ASSESSMENT_ANSWERS_FILLED = "assessment_answers_filled"
+    ASSESSMENT_SUBMITTED = "assessment_submitted"
     INSPECTED_PLAYER = "inspected_player"
     CHAPTER_SELECTED = "chapter_selected"
     PLAYBACK_STARTED = "playback_started"
@@ -62,6 +65,7 @@ class AutomationResult:
     video_count: int = 0
     player_frame_url: str = ""
     remaining_seconds: int = 0
+    assessment_text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +186,12 @@ class CourseAutomation:
         self._selectors = selectors or SelectorManager()
         self._logger = get_logger(__name__)
 
+    @property
+    def page(self) -> Page:
+        """Return the current player or assessment popup page."""
+
+        return self._page
+
     def read_course_study_time(self, course: CourseInfo) -> CourseStudyTime:
         """Open the course detail page and parse required/completed study time."""
 
@@ -264,6 +274,512 @@ class CourseAutomation:
             video_count=self._count_video_elements(self._page),
             player_frame_url=self._find_player_frame_url(self._page),
         )
+
+    def open_assessment_attempt(self, course: CourseInfo) -> AutomationResult:
+        """Open the selected course's assessment question page for the user.
+
+        It returns visible question-page text for the local GUI clipboard, but
+        never chooses an answer or submits the assessment. The platform may
+        record that an assessment attempt was opened, which is intentional
+        because the user explicitly requested the question page.
+        """
+
+        self.enter_course(course)
+        course_page = self._page
+        assessment_frame = self._open_assessment_list()
+        proceed_selector = self._selectors.get("assessment.proceed_button").value
+        proceed_button = assessment_frame.locator(proceed_selector).first
+        if proceed_button.count() == 0:
+            probe_path = self._capture_assessment_action_elements(assessment_frame)
+            raise AutomationError(
+                "測驗清單找不到「進行測驗」按鈕；已擷取目前測驗清單元素："
+                f"{probe_path}"
+            )
+
+        try:
+            with self._page.expect_popup(timeout=20_000) as popup_info:
+                proceed_button.scroll_into_view_if_needed(timeout=10_000)
+                proceed_button.click(timeout=20_000)
+            active_page = popup_info.value
+        except Exception as exc:
+            raise AutomationError(f"無法開啟「進行測驗」的新頁面：{exc}") from exc
+        try:
+            active_page.wait_for_url("**/learn/exam/exam_start.php**", timeout=20_000)
+        except Exception:
+            self._logger.info("進行測驗 popup 未匹配 exam_start.php，繼續用目前頁面尋找開始作答按鈕：%s", active_page.url)
+        self._page = active_page
+
+        start_frame, start_button = self._wait_for_assessment_start_button(
+            active_page,
+            fallback_frame=None,
+        )
+        if start_button is None or start_frame is None:
+            probe_path = self._capture_assessment_action_elements(active_page)
+            raise AutomationError(
+                "進行測驗頁找不到「開始作答」按鈕；已擷取目前頁面元素："
+                f"{probe_path}"
+            )
+
+        try:
+            start_button.scroll_into_view_if_needed(timeout=10_000)
+            active_page.once("dialog", self._accept_assessment_start_dialog)
+            start_button.click(timeout=20_000)
+            start_frame.wait_for_url(
+                re.compile(r".*/learn/exam/(?!exam_list[.]php).*"),
+                timeout=20_000,
+            )
+        except Exception as exc:
+            self._logger.info("開始作答未造成一般 frame 跳轉：%s", exc)
+
+        question_frame = next(
+            (
+                frame
+                for frame in self._page.frames
+                if "/learn/exam/" in (frame.url or "")
+                and "exam_list.php" not in (frame.url or "")
+            ),
+            None,
+        )
+        if question_frame is None:
+            raise AutomationError("已開啟測驗頁，但找不到題目內容區塊。")
+        self._prepare_assessment_view(question_frame)
+        assessment_text = self._extract_assessment_text(question_frame, course.title)
+        self._leave_background_course_page(course_page)
+        try:
+            self._page.bring_to_front()
+        except Exception as exc:
+            self._logger.info("無法將題目頁帶回前景：%s", exc)
+
+        frame_urls = tuple(frame.url for frame in self._page.frames if frame.url)
+        return AutomationResult(
+            status=AutomationStatus.ASSESSMENT_OPENED,
+            message="已開啟測驗題目頁，題目已複製到剪貼簿；原課程頁已離開課程。",
+            course_title=course.title,
+            current_url=self._page.url,
+            page_title=self._page.title(),
+            frame_urls=frame_urls,
+            player_frame_url=self._find_player_frame_url(self._page),
+            assessment_text=assessment_text,
+        )
+
+    def _prepare_assessment_view(self, frame: Any) -> None:
+        """Make the long, user-controlled assessment page easier to review."""
+
+        try:
+            frame.evaluate(
+                """
+                () => {
+                    const body = document.body;
+                    if (!body) return false;
+                    body.style.setProperty("zoom", "70%", "important");
+                    document.documentElement.style.setProperty("overflow-y", "auto", "important");
+                    window.scrollTo({top: 0, left: 0, behavior: "instant"});
+                    return true;
+                }
+                """
+            )
+        except Exception as exc:
+            self._logger.info("無法調整測驗頁顯示比例：%s", exc)
+
+    def _leave_background_course_page(self, course_page: Page) -> None:
+        """Leave the original course page after its assessment popup is ready."""
+
+        if course_page == self._page or course_page.is_closed():
+            return
+
+        try:
+            leave_button = course_page.locator(
+                self._selectors.get("assessment.leave_course_button").value
+            ).first
+            if leave_button.count() > 0 and leave_button.is_visible():
+                leave_button.click(timeout=10_000)
+                course_page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                return
+        except Exception as exc:
+            self._logger.info("原課程頁找不到可點擊的離開課程按鈕：%s", exc)
+
+        dashboard_url = self._config.base_url.replace(
+            "index.php", "user/learn_dashboard.php?tab=1"
+        )
+        try:
+            course_page.goto(dashboard_url, wait_until="domcontentloaded", timeout=20_000)
+        except Exception as exc:
+            self._logger.warning("原課程頁無法返回個人課程清單：%s", exc)
+
+    def _extract_assessment_text(self, frame: Any, course_title: str) -> str:
+        """Return question and option text only, without changing the form."""
+
+        try:
+            question_rows_selector = self._selectors.get("assessment.question_rows").value
+            questions = frame.evaluate(
+                r"""
+                (questionRowsSelector) => {
+                    const clean = (text) => (text || "")
+                        .replace(/&nbsp;/gi, " ")
+                        .replace(/\s+/g, " ")
+                        .trim();
+                    const optionText = (item) => {
+                        const copy = item.cloneNode(true);
+                        copy.querySelectorAll("input").forEach((node) => node.remove());
+                        const text = clean(copy.innerText || copy.textContent);
+                        if (text) return text;
+                        const input = item.querySelector("input");
+                        if (input?.value === "T") return "是";
+                        if (input?.value === "F") return "否";
+                        return "";
+                    };
+                    return Array.from(document.querySelectorAll(questionRowsSelector)).map((row, index) => {
+                        const cells = row.querySelectorAll("td");
+                        const questionCell = cells[2];
+                        const list = questionCell?.querySelector("ol");
+                        if (!questionCell || !list) return null;
+                        const questionCopy = questionCell.cloneNode(true);
+                        questionCopy.querySelector("ol")?.remove();
+                        const question = clean(questionCopy.innerText || questionCopy.textContent)
+                            .replace(/^\d+[.、]\s*/, "");
+                        const options = Array.from(list.querySelectorAll(":scope > li"))
+                            .map(optionText)
+                            .filter(Boolean);
+                        return {number: index + 1, question, options};
+                    }).filter((item) => item.question && item.options.length);
+                }
+                """,
+                question_rows_selector,
+            )
+        except Exception as exc:
+            raise AutomationError(f"無法讀取測驗題目文字：{exc}") from exc
+
+        if not questions:
+            raise AutomationError("測驗題目頁沒有可複製的文字。")
+        prompt = (
+            "請依題目順序，只輸出一行簡短答案代碼；題目之間用一個空白隔開。\n"
+            "每題第一個選項=1或A、第二個=2或B、第三個=3或C、第四個=4或D。\n"
+            "複選題請把同題答案連寫，例如13或AC代表第一、第三選項。\n"
+            "不要題號、說明、理由、Markdown 或其他文字。\n\n"
+        )
+        formatted_questions = "\n\n".join(
+            "第 {number} 題\n{question}\n選項：\n{options}".format(
+                number=item["number"],
+                question=item["question"],
+                options="\n".join(f"- {option}" for option in item["options"]),
+            )
+            for item in questions
+        )
+        return f"{prompt}{formatted_questions}"
+
+    def fill_assessment_answers(self, clipboard_text: str) -> AutomationResult:
+        """Fill exact clipboard answers into the open assessment without submitting."""
+
+        if not clipboard_text.strip():
+            raise AutomationError("剪貼簿沒有可填入的答案字串。")
+
+        question_rows_selector = self._selectors.get("assessment.question_rows").value
+        result = None
+        for frame in self._page.frames:
+            try:
+                candidate = frame.evaluate(
+                    r"""
+                    ({clipboardText, questionRowsSelector}) => {
+                        const clean = (text) => (text || "")
+                            .replace(/&nbsp;/gi, " ")
+                            .replace(/\s+/g, " ")
+                            .trim();
+                        const optionText = (item) => {
+                            const copy = item.cloneNode(true);
+                            copy.querySelectorAll("input").forEach((node) => node.remove());
+                            const text = clean(copy.innerText || copy.textContent);
+                            if (text) return text;
+                            const input = item.querySelector("input");
+                            if (input?.value === "T") return "是";
+                            if (input?.value === "F") return "否";
+                            return "";
+                        };
+                        const rows = Array.from(document.querySelectorAll(questionRowsSelector))
+                            .filter((row) => row.querySelector("td:nth-child(3) > ol"));
+                        const nonEmptyLines = clipboardText
+                            .split(/\r?\n/)
+                            .map(clean)
+                            .filter(Boolean);
+                        let answers = nonEmptyLines;
+                        if (nonEmptyLines.length === 1 && rows.length > 1) {
+                            const raw = nonEmptyLines[0];
+                            const separated = raw.split(/[\s,;|/]+/).filter(Boolean);
+                            if (separated.length === rows.length) {
+                                answers = separated;
+                            } else if (/^[0-9A-Za-z]+$/.test(raw) && raw.length === rows.length) {
+                                answers = Array.from(raw);
+                            }
+                        }
+                        const selectedOptions = (options, answer) => {
+                            const exact = options.filter((item) => optionText(item) === answer);
+                            if (exact.length === 1) return exact;
+                            const normalized = answer.toUpperCase();
+                            if (normalized === "T") return options.filter((item) => optionText(item) === "是");
+                            if (normalized === "F") return options.filter((item) => optionText(item) === "否");
+                            const indexes = [];
+                            for (const code of normalized.replace(/[\s,;|/+]/g, "")) {
+                                let optionIndex = -1;
+                                if (/^[1-9]$/.test(code)) optionIndex = Number(code) - 1;
+                                if (code === "0") optionIndex = 0;
+                                if (/^[A-Z]$/.test(code)) optionIndex = code.charCodeAt(0) - 65;
+                                if (optionIndex < 0 || optionIndex >= options.length || indexes.includes(optionIndex)) {
+                                    return [];
+                                }
+                                indexes.push(optionIndex);
+                            }
+                            return indexes.map((index) => options[index]);
+                        };
+                        const filled = [];
+                        const skipped = [];
+                        rows.forEach((row, index) => {
+                            const answer = clean(answers[index] || "");
+                            if (!answer) {
+                                skipped.push(index + 1);
+                                return;
+                            }
+                            const options = Array.from(row.querySelectorAll("td:nth-child(3) > ol > li"));
+                            const matched = selectedOptions(options, answer);
+                            const controls = matched.map((item) => item.querySelector(
+                                "input[type='radio']:not(:disabled), input[type='checkbox']:not(:disabled)"
+                            ));
+                            if (!matched.length || controls.some((control) => !control)) {
+                                skipped.push(index + 1);
+                                return;
+                            }
+                            if (controls[0].type === "radio" && controls.length !== 1) {
+                                skipped.push(index + 1);
+                                return;
+                            }
+                            controls.forEach((control) => {
+                                control.checked = true;
+                                control.dispatchEvent(new Event("input", {bubbles: true}));
+                                control.dispatchEvent(new Event("change", {bubbles: true}));
+                            });
+                            filled.push(index + 1);
+                        });
+                        return {groupCount: rows.length, filled, skipped};
+                    }
+                    """,
+                    {"clipboardText": clipboard_text, "questionRowsSelector": question_rows_selector},
+                )
+                if int(candidate.get("groupCount", 0)) > 0:
+                    result = candidate
+                    break
+            except Exception:
+                continue
+        if result is None:
+            raise AutomationError("目前頁面找不到可填寫的測驗選項。")
+
+        filled = len(result.get("filled", []))
+        skipped = result.get("skipped", [])
+        message = f"已填入 {filled} 題答案，尚未送出。"
+        if skipped:
+            message += f" 第 {', '.join(str(number) for number in skipped)} 題未精確比對，已略過。"
+        return AutomationResult(
+            status=AutomationStatus.ASSESSMENT_ANSWERS_FILLED,
+            message=message,
+            current_url=self._page.url,
+            page_title=self._page.title(),
+        )
+
+    def submit_assessment(self) -> AutomationResult:
+        """Submit the open assessment and close its published-answer result page."""
+
+        submit_selector = self._selectors.get("assessment.submit_button").value
+        submit_button = None
+        for frame in self._page.frames:
+            try:
+                candidate = frame.locator(submit_selector).first
+                if candidate.count() > 0 and candidate.is_visible():
+                    submit_button = candidate
+                    break
+            except Exception:
+                continue
+        if submit_button is None:
+            raise AutomationError("目前測驗頁找不到「送出答案，結束測驗」按鈕。")
+
+        platform_confirmed = Event()
+
+        def accept_platform_confirmation(dialog: Any) -> None:
+            platform_confirmed.set()
+            try:
+                dialog.accept()
+            except Exception as exc:
+                if "already handled" not in str(exc).lower():
+                    self._logger.warning("測驗送出確認視窗無法確認：%s", exc)
+
+        self._page.once("dialog", accept_platform_confirmation)
+        try:
+            submit_button.scroll_into_view_if_needed(timeout=10_000)
+            submit_button.click(timeout=20_000)
+            try:
+                self._page.wait_for_url("**/learn/exam/view_result.php**", timeout=20_000)
+            except Exception:
+                self._logger.info("送出後尚未跳轉至公布答案頁：%s", self._page.url)
+            try:
+                self._page.wait_for_load_state("domcontentloaded", timeout=20_000)
+            except Exception:
+                pass
+        except Exception as exc:
+            if not platform_confirmed.is_set():
+                self._page.remove_listener("dialog", accept_platform_confirmation)
+            raise AutomationError(f"無法送出測驗：{exc}") from exc
+
+        message = "已送出測驗。"
+        if platform_confirmed.is_set():
+            message = "已送出測驗，並已確認平台提示視窗。"
+        if "/learn/exam/view_result.php" in self._page.url:
+            result_page = self._page
+            fallback_pages = [
+                page
+                for page in result_page.context.pages
+                if page is not result_page and not page.is_closed()
+            ]
+            if fallback_pages:
+                result_page.close()
+                self._page = fallback_pages[-1]
+                try:
+                    self._page.bring_to_front()
+                except Exception:
+                    pass
+                message += " 已關閉公布答案頁。"
+            else:
+                self._logger.warning("公布答案頁沒有可切換的其他瀏覽器頁面，保留結果頁。")
+        return AutomationResult(
+            status=AutomationStatus.ASSESSMENT_SUBMITTED,
+            message=message,
+            current_url=self._page.url,
+            page_title=self._page.title(),
+        )
+
+    def _find_assessment_start_button(self, page: Page) -> tuple[Any | None, Any | None]:
+        """Return the exact start-attempt control from the new assessment page."""
+
+        selector = self._selectors.get("assessment.start_attempt").value
+        for frame in page.frames:
+            try:
+                button = frame.locator(selector).first
+                if button.count() > 0:
+                    return frame, button
+            except Exception:
+                continue
+        return None, None
+
+    def _wait_for_assessment_start_button(
+        self,
+        page: Page,
+        fallback_frame: Any | None,
+    ) -> tuple[Any | None, Any | None]:
+        """Wait for the start control in the new page's main content frame."""
+
+        selector = self._selectors.get("assessment.start_attempt").value
+        expected_frames = [page.frame(name="s_main"), fallback_frame, page.main_frame]
+        seen_frames: set[int] = set()
+        for frame in expected_frames:
+            if frame is None or id(frame) in seen_frames:
+                continue
+            seen_frames.add(id(frame))
+            try:
+                button = frame.locator(selector).first
+                button.wait_for(state="attached", timeout=15_000)
+                return frame, button
+            except Exception:
+                continue
+        return self._find_assessment_start_button(page)
+
+    @staticmethod
+    def _accept_assessment_start_dialog(dialog: Any) -> None:
+        """Accept only the platform dialog caused by the user-requested start action."""
+
+        try:
+            dialog.accept()
+        except Exception:
+            pass
+
+    def _capture_assessment_action_elements(self, source: Any) -> Path:
+        """Save action elements from an assessment page and all of its frames."""
+
+        frames = source.frames if hasattr(source, "frames") else [source]
+        frame_data: list[dict[str, Any]] = []
+        for frame in frames:
+            try:
+                elements = frame.evaluate(
+                """
+                () => Array.from(document.querySelectorAll("a, button, input, [role='button']"))
+                    .map((node) => ({
+                        tag: node.tagName,
+                        id: node.id || "",
+                        className: node.className || "",
+                        text: (node.innerText || node.textContent || node.value || "").replace(/\\s+/g, " ").trim(),
+                        value: node.value || "",
+                        name: node.name || "",
+                        type: node.type || "",
+                        href: node.href || node.getAttribute("href") || "",
+                        onclick: node.getAttribute("onclick") || "",
+                    }))
+                    .filter((node) => node.text || node.href || node.onclick)
+                    .slice(0, 200)
+                """
+                )
+            except Exception as exc:
+                elements = [{"capture_error": str(exc)}]
+            frame_data.append(
+                {"name": frame.name or "", "url": frame.url or "", "elements": elements}
+            )
+
+        probe_path = self._config.resources_dir / "element_probe.json"
+        payload = {
+            "kind": "assessment_action_elements",
+            "frames": frame_data,
+        }
+        probe_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        element_count = sum(len(item["elements"]) for item in frame_data)
+        self._logger.info("已擷取 %d 個測驗頁元素：%s", element_count, probe_path)
+        return probe_path
+
+    def _open_assessment_list(self) -> Any:
+        """Navigate from the player menu to its assessment list without opening questions."""
+
+        entry_selector = self._selectors.get("assessment.entry_link").value
+        menu_frame = None
+        entry = None
+        for frame in self._page.frames:
+            try:
+                entries = frame.locator(entry_selector)
+                if entries.count() > 0:
+                    menu_frame = frame
+                    entry = entries.first
+                    break
+            except Exception:
+                continue
+        if entry is None:
+            raise AutomationError("課程播放器找不到測驗／考試入口。")
+
+        try:
+            entry.click(timeout=15_000)
+        except Exception as exc:
+            raise AutomationError(f"無法開啟測驗清單：{exc}") from exc
+
+        assessment_frame = self._page.frame(name="s_main") or menu_frame
+        if assessment_frame is not None:
+            try:
+                assessment_frame.wait_for_url("**/learn/exam/exam_list.php**", timeout=15_000)
+            except Exception:
+                pass
+        assessment_frame = next(
+            (
+                frame
+                for frame in self._page.frames
+                if "exam_list.php" in (frame.url or "")
+            ),
+            assessment_frame,
+        )
+        if assessment_frame is None or "exam_list.php" not in (assessment_frame.url or ""):
+            raise AutomationError("點擊測驗入口後找不到測驗清單頁。")
+        return assessment_frame
 
     def inspect_player(self) -> AutomationResult:
         """Inspect the current course/player page without changing progress."""

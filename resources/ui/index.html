@@ -198,19 +198,20 @@
 
         <section id="page-assessment" class="page" aria-labelledby="assessment-heading">
           <div class="page-heading">
-            <div><h2 id="assessment-heading">測驗</h2><p>逐門檢查可上課且仍有未答測驗的課程。</p></div>
+            <div><h2 id="assessment-heading">測驗</h2><p>依「上課」頁掃描結果列出閱讀時數已達標的課程，不逐門檢查測驗狀態。</p></div>
             <div class="metric"><span>待處理</span><strong id="assessment-count">0</strong></div>
           </div>
           <div class="command-bar">
-            <button id="scan-assessments-button" class="button primary" type="button">逐門檢查未答測驗</button>
-            <button id="enter-assessment-button" class="button" type="button">開啟選取課程</button>
+            <button id="enter-assessment-button" class="button primary" type="button">開啟選取課程的題目頁</button>
+            <button id="fill-assessment-button" class="button warning" type="button">擷取剪貼簿答案</button>
+            <button id="submit-assessment-button" class="button danger" type="button">送出測驗</button>
           </div>
           <section class="panel table-panel">
-            <div class="panel-title-row"><h3>未答測驗課程</h3><span id="assessment-selection-label" class="muted">尚未選取</span></div>
+            <div class="panel-title-row"><h3>閱讀達標，可進入測驗</h3><span id="assessment-selection-label" class="muted">尚未選取</span></div>
             <div class="table-scroll assessment-table-scroll">
               <table>
-                <thead><tr><th class="number-column">#</th><th>課程名稱</th><th>上課狀態</th><th>測驗狀態</th><th>檢查結果</th></tr></thead>
-                <tbody id="assessment-body"><tr class="empty-row"><td colspan="5">尚未檢查測驗狀態</td></tr></tbody>
+                <thead><tr><th class="number-column">#</th><th>課程名稱</th><th>閱讀狀態</th><th>測驗狀態</th><th>判斷方式</th></tr></thead>
+                <tbody id="assessment-body"><tr class="empty-row"><td colspan="5">請先到「上課」頁掃描課程</td></tr></tbody>
               </table>
             </div>
           </section>
@@ -224,6 +225,17 @@
         </button>
         <div id="log-content" class="log-content" aria-live="polite"></div>
       </section>
+    </section>
+  </div>
+
+  <div id="notice-modal" class="notice-modal hidden" role="dialog" aria-modal="true" aria-labelledby="notice-title">
+    <section class="notice-card">
+      <div class="notice-symbol" aria-hidden="true">✓</div>
+      <div class="notice-copy">
+        <h3 id="notice-title">完成</h3>
+        <p id="notice-message"></p>
+      </div>
+      <button id="notice-close-button" class="button primary" type="button">知道了</button>
     </section>
   </div>
 

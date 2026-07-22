@@ -824,6 +824,61 @@ td.check-cell input:disabled {
   transform: translateY(0);
 }
 
+.notice-modal {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(9, 12, 15, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.notice-card {
+  width: min(500px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 24px;
+  border: 1px solid #3d8ab0;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #202830, #151b21);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.52);
+}
+
+.notice-symbol {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #49a875;
+  border-radius: 50%;
+  background: #1e4a36;
+  color: #a5e5c3;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.notice-copy h3 {
+  margin: 0 0 7px;
+  color: #f5f7f9;
+  font-size: 18px;
+}
+
+.notice-copy p {
+  margin: 0;
+  color: #b9c2ca;
+  line-height: 1.6;
+}
+
+.notice-card .button {
+  grid-column: 2;
+  justify-self: end;
+  margin-top: 2px;
+}
+
 .hidden {
   display: none !important;
 }

@@ -227,6 +227,51 @@ DEFAULT_SELECTORS: Final[dict[str, Selector]] = {
         description="Assessment-list page text used only for completion-status inspection.",
         timeout_ms=15_000,
     ),
+    "assessment.proceed_button": Selector(
+        key="assessment.proceed_button",
+        value="div.main-text:has-text('進行測驗')",
+        group=SelectorGroup.ASSESSMENT,
+        description="Assessment-list control that opens the pre-attempt page.",
+        timeout_ms=20_000,
+    ),
+    "assessment.start_attempt": Selector(
+        key="assessment.start_attempt",
+        value="input.cssBtn[type='button'][value='開始作答'][onclick*='examBegin']",
+        group=SelectorGroup.ASSESSMENT,
+        description="Pre-attempt button that opens the user-controlled question page.",
+        timeout_ms=20_000,
+    ),
+    "assessment.leave_course_button": Selector(
+        key="assessment.leave_course_button",
+        value=(
+            "a:has-text('離開課程'), button:has-text('離開課程'), "
+            "input[value*='離開課程']"
+        ),
+        group=SelectorGroup.ASSESSMENT,
+        description="Course-player exit control used after its assessment popup is open.",
+        timeout_ms=10_000,
+    ),
+    "assessment.answer_control": Selector(
+        key="assessment.answer_control",
+        value="input[type='radio'], input[type='checkbox'], select",
+        group=SelectorGroup.ASSESSMENT,
+        description="Answer controls used only to fill user-provided clipboard answers without submitting.",
+        timeout_ms=15_000,
+    ),
+    "assessment.submit_button": Selector(
+        key="assessment.submit_button",
+        value="input[type='submit'][value*='送出答案'], input[type='submit'][value*='送出']",
+        group=SelectorGroup.ASSESSMENT,
+        description="Final assessment submission control, used only after an explicit GUI confirmation.",
+        timeout_ms=15_000,
+    ),
+    "assessment.question_rows": Selector(
+        key="assessment.question_rows",
+        value="tr.bg03, tr.bg04",
+        group=SelectorGroup.ASSESSMENT,
+        description="Question rows in the platform assessment table.",
+        timeout_ms=15_000,
+    ),
     "player.main_frame": Selector(
         key="player.main_frame",
         value="iframe[src*='/online/online.php'], iframe[src*='/learn/'], frame[src*='/online/online.php'], frame[src*='/learn/']",

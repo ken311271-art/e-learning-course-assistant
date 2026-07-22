@@ -143,6 +143,24 @@ class BrowserWorker(QObject):
         self._commands.put(("scan_unanswered_assessments", None))
 
     @Slot(object)
+    def open_assessment_attempt(self, course: CourseInfo) -> None:
+        """Queue opening a selected course assessment for user-controlled work."""
+
+        self._commands.put(("open_assessment_attempt", course))
+
+    @Slot(str)
+    def fill_assessment_answers(self, clipboard_text: str) -> None:
+        """Queue exact clipboard answers for the open assessment without submission."""
+
+        self._commands.put(("fill_assessment_answers", clipboard_text))
+
+    @Slot()
+    def submit_assessment(self) -> None:
+        """Queue the user-requested assessment submission."""
+
+        self._commands.put(("submit_assessment", None))
+
+    @Slot(object)
     def enter_course(self, course: CourseInfo) -> None:
         """Queue entering a selected course."""
 
@@ -236,6 +254,12 @@ class BrowserWorker(QObject):
                 self._run_task(self._scan_courses_impl)
             elif command == "scan_unanswered_assessments":
                 self._run_task(self._scan_unanswered_assessments_impl)
+            elif command == "open_assessment_attempt":
+                self._run_task(lambda: self._open_assessment_attempt_impl(payload))
+            elif command == "fill_assessment_answers":
+                self._run_task(lambda: self._fill_assessment_answers_impl(payload))
+            elif command == "submit_assessment":
+                self._run_task(self._submit_assessment_impl)
             elif command == "enter_course":
                 self._run_task(lambda: self._enter_course_impl(payload))
             elif command == "inspect_player":
@@ -285,6 +309,7 @@ class BrowserWorker(QObject):
             result = service.open_personal_area("已偵測到既有登入，已進入個人專區")
             self.login_result.emit(result)
             self.state_changed.emit(self._browser.refresh_state(result.message))
+            self._scan_courses_impl()
             return
 
         message = "尚未登入，請輸入帳號與密碼後按登入。"
@@ -311,6 +336,7 @@ class BrowserWorker(QObject):
         )
         self.login_result.emit(result)
         self.state_changed.emit(self._browser.refresh_state(result.message))
+        self._scan_courses_impl()
 
     def _scan_courses_impl(self) -> None:
         """Scan unfinished courses and enrich them with reading-time data."""
@@ -377,6 +403,45 @@ class BrowserWorker(QObject):
                     payload.remaining_reading_seconds + EXTRA_PLAYBACK_SECONDS_PER_COURSE
                 ),
             )
+        self.automation_result.emit(result)
+        self.state_changed.emit(self._browser.refresh_state(result.message))
+
+    def _open_assessment_attempt_impl(self, payload: object | None) -> None:
+        """Enter one qualified course and open its question page without answering."""
+
+        if not isinstance(payload, CourseInfo):
+            raise AutomationError("請先選擇一門可測驗課程。")
+        if self._browser is None or not self._browser.is_running:
+            raise AutomationError("請先啟動瀏覽器並完成登入。")
+
+        automation = CourseAutomation(page=self._browser.page, config=self._config)
+        result = automation.open_assessment_attempt(payload)
+        self._browser.set_active_page(automation.page)
+        self.automation_result.emit(result)
+        self.state_changed.emit(self._browser.refresh_state(result.message))
+
+    def _fill_assessment_answers_impl(self, payload: object | None) -> None:
+        """Fill clipboard answer strings into current assessment; never submit it."""
+
+        if not isinstance(payload, str):
+            raise AutomationError("剪貼簿答案資料格式錯誤。")
+        if self._browser is None or not self._browser.is_running:
+            raise AutomationError("請先開啟測驗題目頁。")
+
+        automation = CourseAutomation(page=self._browser.page, config=self._config)
+        result = automation.fill_assessment_answers(payload)
+        self.automation_result.emit(result)
+        self.state_changed.emit(self._browser.refresh_state(result.message))
+
+    def _submit_assessment_impl(self) -> None:
+        """Submit the current assessment from the HTML GUI."""
+
+        if self._browser is None or not self._browser.is_running:
+            raise AutomationError("請先開啟測驗題目頁。")
+
+        automation = CourseAutomation(page=self._browser.page, config=self._config)
+        result = automation.submit_assessment()
+        self._browser.set_active_page(automation.page)
         self.automation_result.emit(result)
         self.state_changed.emit(self._browser.refresh_state(result.message))
 

@@ -1,6 +1,6 @@
 [project]
 name = "e-civil-servant-learning-assistant"
-version = "0.1.0"
+version = "3.1.0"
 description = "Windows desktop assistant for E government employee learning website."
 requires-python = ">=3.12"
 dependencies = [
@@ -15,4 +15,3 @@ target-version = "py312"
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
-

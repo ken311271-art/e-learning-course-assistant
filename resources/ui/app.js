@@ -151,8 +151,9 @@ function updateControls() {
   byId("enroll-button").disabled = !loginReady || state.enrollmentChecked.size === 0;
 
   byId("survey-button").disabled = !loginReady;
-  byId("scan-assessments-button").disabled = !loginReady;
   byId("enter-assessment-button").disabled = !loginReady || state.selectedAssessment < 0;
+  byId("fill-assessment-button").disabled = !loginReady;
+  byId("submit-assessment-button").disabled = !loginReady;
   updateSystemStatus();
 }
 
@@ -465,6 +466,8 @@ function handleEvent(rawMessage) {
     }
     case "course_scan":
       state.studyCourses = payload.courses || [];
+      state.assessmentCourses = payload.assessment_courses || [];
+      state.selectedAssessment = -1;
       state.selectedStudy = -1;
       state.studyChecked = new Set(
         state.studyCourses
@@ -477,7 +480,9 @@ function handleEvent(rawMessage) {
       byId("study-countdown").textContent = "--:--:--";
       byId("countdown-course").textContent = "尚未開始";
       byId("study-selection-label").textContent = `已勾選 ${state.studyChecked.size} 門`;
+      byId("assessment-selection-label").textContent = "尚未選取";
       renderStudyCourses();
+      renderAssessmentCourses();
       break;
     case "assessment_scan":
       state.assessmentCourses = payload.courses || [];
@@ -535,6 +540,9 @@ function handleEvent(rawMessage) {
     case "enrollment_submit":
       updateEnrollmentResults(payload.results || []);
       break;
+    case "notice":
+      showNotice(payload.title || "完成", payload.message || "操作已完成。");
+      break;
     case "log":
       appendLog(payload);
       break;
@@ -555,6 +563,17 @@ function handleEvent(rawMessage) {
       appendClientLog(`收到未知事件：${event.type}`, "warning");
   }
   updateControls();
+}
+
+function showNotice(title, message) {
+  byId("notice-title").textContent = title;
+  byId("notice-message").textContent = message;
+  byId("notice-modal").classList.remove("hidden");
+  byId("notice-close-button").focus();
+}
+
+function hideNotice() {
+  byId("notice-modal").classList.add("hidden");
 }
 
 function bindActions() {
@@ -591,8 +610,16 @@ function bindActions() {
   byId("enroll-button").addEventListener("click", enrollSelected);
 
   byId("survey-button").addEventListener("click", () => callBridge("processSurveys"));
-  byId("scan-assessments-button").addEventListener("click", () => callBridge("scanAssessments"));
   byId("enter-assessment-button").addEventListener("click", () => callBridge("enterAssessmentCourse", state.selectedAssessment));
+  byId("fill-assessment-button").addEventListener("click", () => callBridge("fillAssessmentAnswers"));
+  byId("submit-assessment-button").addEventListener("click", () => callBridge("submitAssessment"));
+  byId("notice-close-button").addEventListener("click", hideNotice);
+  byId("notice-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) hideNotice();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !byId("notice-modal").classList.contains("hidden")) hideNotice();
+  });
 
   byId("log-toggle").addEventListener("click", () => {
     const drawer = byId("log-drawer");
