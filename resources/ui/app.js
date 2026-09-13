@@ -500,7 +500,26 @@ function handleEvent(rawMessage) {
       if (result.status === "playback_finished" || result.status === "playback_stopped") {
         state.currentStudyCourse = "";
       }
-      if (previousCourse !== state.currentStudyCourse) renderStudyCourses();
+      let shouldRenderStudy = previousCourse !== state.currentStudyCourse;
+      if (result.status === "course_completed" || result.status === "course_skipped") {
+        const title = result.course_title;
+        const target = state.studyCourses.find((c) => c.title === title);
+        if (target) {
+          if (result.course_info) {
+            target.studied_reading_seconds = result.course_info.studied_reading_seconds;
+            target.remaining_reading_seconds = result.course_info.remaining_reading_seconds;
+            target.required_reading_seconds = result.course_info.required_reading_seconds;
+            target.survey_status = result.course_info.survey_status || target.survey_status;
+          }
+          if (Number(target.remaining_reading_seconds || 0) <= 0) {
+            const idx = state.studyCourses.indexOf(target);
+            state.studyChecked.delete(idx);
+            byId("study-selection-label").textContent = `已勾選 ${state.studyChecked.size} 門`;
+          }
+          shouldRenderStudy = true;
+        }
+      }
+      if (shouldRenderStudy) renderStudyCourses();
       const frameCount = Array.isArray(result.frame_urls) ? result.frame_urls.length : 0;
       const details = [
         result.message,

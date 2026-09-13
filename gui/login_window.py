@@ -1395,6 +1395,12 @@ class LoginWindow(QMainWindow):
         self.course_result_box.setPlainText("\n".join(line for line in lines if line))
         self._append_log(f"{result.message} 偵測到 {frame_count} 個 iframe、{result.video_count} 個影片元素。")
 
+        if result.status in (AutomationStatus.COURSE_COMPLETED, AutomationStatus.COURSE_SKIPPED) and result.course_info is not None:
+            for idx, c in enumerate(self._courses):
+                if c.title == result.course_title or (c.course_url and c.course_url == result.course_info.course_url):
+                    self._courses[idx] = result.course_info
+                    break
+
         active_statuses = {
             AutomationStatus.ENTERED_COURSE,
             AutomationStatus.CHAPTER_SELECTED,

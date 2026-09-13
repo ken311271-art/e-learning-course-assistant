@@ -34,6 +34,13 @@ else:
 EXTRA_PLAYBACK_SECONDS_PER_COURSE = 5 * 60
 
 
+def _format_minutes_seconds(total_seconds: int) -> str:
+    """Format a duration as total minutes and seconds."""
+
+    minutes, seconds = divmod(max(0, int(total_seconds)), 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
+
 class AutomationStatus(str, Enum):
     """High-level status for course automation actions."""
 
@@ -45,6 +52,7 @@ class AutomationStatus(str, Enum):
     CHAPTER_SELECTED = "chapter_selected"
     PLAYBACK_STARTED = "playback_started"
     PLAYBACK_WAITING = "playback_waiting"
+    COURSE_COMPLETED = "course_completed"
     PLAYBACK_FINISHED = "playback_finished"
     PLAYBACK_STOPPED = "playback_stopped"
     COURSE_SKIPPED = "course_skipped"
@@ -66,6 +74,7 @@ class AutomationResult:
     player_frame_url: str = ""
     remaining_seconds: int = 0
     assessment_text: str = ""
+    course_info: CourseInfo | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +207,13 @@ class CourseAutomation:
         if not course.course_url:
             return CourseStudyTime()
 
+        if self._page.is_closed():
+            pages = [page for page in self._page.context.pages if not page.is_closed()]
+            if pages:
+                self._page = pages[0]
+            else:
+                return CourseStudyTime()
+
         self._page.goto(course.course_url, wait_until="domcontentloaded", timeout=30_000)
         try:
             self._page.wait_for_load_state("networkidle", timeout=10_000)
@@ -214,6 +230,42 @@ class CourseAutomation:
             studied_seconds=studied,
             survey_status=survey_status,
         )
+
+    def leave_course_player(self) -> None:
+        """Attempt to safely leave the active player to commit SCORM session."""
+
+        try:
+            if not self._page.is_closed():
+                leave_selector = self._selectors.get("assessment.leave_course_button").value
+                for frame in self._page.frames:
+                    try:
+                        leave_button = frame.locator(leave_selector).first
+                        if leave_button.count() > 0 and leave_button.is_visible(timeout=500):
+                            self._logger.info("點擊「離開課程」按鈕以儲存研習時數。")
+                            leave_button.click(timeout=5_000)
+                            try:
+                                self._page.wait_for_load_state("domcontentloaded", timeout=5_000)
+                            except Exception:
+                                pass
+                            break
+                    except Exception:
+                        continue
+        except Exception as exc:
+            self._logger.debug("嘗試離開播放器時發生例外：%s", exc)
+
+        try:
+            context_pages = [p for p in self._page.context.pages if not p.is_closed()]
+            if len(context_pages) > 1 and self._page != context_pages[0]:
+                self._logger.info("關閉課程播放器分頁，返回主頁面。")
+                try:
+                    self._page.close(run_before_unload=True)
+                except Exception:
+                    pass
+                remaining_pages = [p for p in self._page.context.pages if not p.is_closed()]
+                if remaining_pages:
+                    self._page = remaining_pages[0]
+        except Exception as exc:
+            self._logger.debug("關閉播放器分頁失敗：%s", exc)
 
     def return_to_course_dashboard(self) -> AutomationResult:
         """Leave the active player and return to the personal course list."""
@@ -845,11 +897,130 @@ class CourseAutomation:
 
         raise AutomationError(f"找不到可播放章節。{debug_summary}")
 
+    def ensure_video_playing(self) -> int:
+        """Find video/audio elements or play buttons across all frames and trigger playback."""
+
+        played_count = 0
+        self._close_blocking_popups()
+
+        play_button_selectors = (
+            ".vjs-big-play-button",
+            ".vjs-play-control",
+            ".ytp-large-play-button",
+            ".ytp-play-button",
+            "button.play",
+            "button.play-btn",
+            ".play-btn",
+            ".btn-play",
+            ".play-button",
+            ".video-play",
+            "button[title*='播放']",
+            "button[aria-label*='播放']",
+            "button:has-text('播放')",
+            "a[title*='播放']",
+            "a:has-text('播放')",
+            "input[type='button'][value*='播放']",
+            "button[title*='Play']",
+            "button[aria-label*='Play']",
+            "button:has-text('Play')",
+        )
+
+        for frame in self._page.frames:
+            try:
+                # 1. Native HTML5 video/audio playback and JS player APIs
+                js_played = frame.evaluate(
+                    """
+                    () => {
+                        let count = 0;
+                        // 1. Standard HTML5 media
+                        const mediaElements = document.querySelectorAll("video, audio");
+                        for (const el of mediaElements) {
+                            try {
+                                el.muted = true;
+                                if (el.paused) {
+                                    const res = el.play();
+                                    if (res && typeof res.catch === "function") {
+                                        res.catch(() => {});
+                                    }
+                                    count++;
+                                }
+                            } catch (e) {}
+                        }
+                        // 2. VideoJS players
+                        try {
+                            if (window.videojs && typeof window.videojs.getAllPlayers === "function") {
+                                const players = window.videojs.getAllPlayers();
+                                for (const p of players) {
+                                    if (p && typeof p.play === "function") {
+                                        try { p.muted(true); } catch (e) {}
+                                        if (p.paused && p.paused()) {
+                                            p.play();
+                                            count++;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) {}
+                        // 3. JW Player
+                        try {
+                            if (window.jwplayer && typeof window.jwplayer === "function") {
+                                const jw = window.jwplayer();
+                                if (jw && typeof jw.getState === "function" && jw.getState() !== "playing") {
+                                    jw.play(true);
+                                    count++;
+                                }
+                            }
+                        } catch (e) {}
+                        return count;
+                    }
+                    """
+                )
+                if js_played:
+                    played_count += int(js_played)
+            except Exception:
+                pass
+
+            # 2. Click play button if visible
+            for selector in play_button_selectors:
+                try:
+                    btn = frame.locator(selector).first
+                    if btn.count() > 0 and btn.is_visible(timeout=150):
+                        btn.click(timeout=1_000)
+                        played_count += 1
+                        self._logger.info("已點擊播放按鈕：%s（frame=%s）", selector, frame.url or "about:blank")
+                        break
+                except Exception:
+                    continue
+
+            # 3. If there is a paused video element, try clicking it directly
+            try:
+                video_locator = frame.locator("video").first
+                if video_locator.count() > 0 and video_locator.is_visible(timeout=150):
+                    is_paused = frame.evaluate(
+                        "() => { const v = document.querySelector('video'); return v ? v.paused : false; }"
+                    )
+                    if is_paused:
+                        video_locator.click(timeout=1_000)
+                        played_count += 1
+            except Exception:
+                pass
+
+        return played_count
+
     def start_current_video(self) -> AutomationResult:
-        """Mark the current lesson as started without blocking on player internals."""
+        """Trigger playback on the current lesson and start the reading timer."""
 
         page = self._page
         self._close_blocking_popups()
+
+        # Give the newly selected chapter a moment to mount its player frame
+        try:
+            page.wait_for_timeout(2_000)
+        except Exception:
+            time.sleep(2)
+
+        played_count = self.ensure_video_playing()
+
         frame_urls = tuple(frame.url for frame in page.frames if frame.url)
         try:
             media_count = page.locator(
@@ -859,7 +1030,9 @@ class CourseAutomation:
         except Exception:
             media_count = 0
 
-        message = "已進入教材頁，開始閱讀時數倒數。"
+        msg_extra = f"（已自動觸發 {played_count} 個媒體播放）" if played_count > 0 else ""
+        message = f"已進入教材頁{msg_extra}，開始閱讀時數倒數。"
+        self._logger.info("%s 偵測到 %d 個媒體元素。", message, media_count)
         return AutomationResult(
             status=AutomationStatus.PLAYBACK_STARTED,
             message=message,
@@ -1657,16 +1830,57 @@ class PlaybackScheduler:
                 )
                 remaining_for_course = max(0, remaining_for_course - elapsed_seconds)
 
-            if self._skip_course_requested():
-                self._emit(
-                    emit_result,
-                    AutomationResult(
-                        status=AutomationStatus.PLAYBACK_WAITING,
-                        message=f"已跳過目前課程：{course.title}",
-                        course_title=course.title,
-                        remaining_seconds=remaining_for_course,
+            if self._stop_event.is_set():
+                break
+
+            skipped = self._skip_course_requested()
+            self._emit(
+                emit_result,
+                AutomationResult(
+                    status=AutomationStatus.PLAYBACK_WAITING,
+                    message=(
+                        f"已跳過目前課程：{course.title}，正在讀取最新時數..."
+                        if skipped
+                        else f"{course.title} 上課已達預定時數，正在離開課程並向平台讀取最新時數..."
                     ),
+                    course_title=course.title,
+                    remaining_seconds=0 if not skipped else remaining_for_course,
+                ),
+            )
+
+            # Safely exit player to trigger SCORM commit
+            self._automation.leave_course_player()
+
+            # Read latest official study time
+            try:
+                latest_study_time = self._automation.read_course_study_time(course)
+                updated_course = replace(
+                    course,
+                    required_reading_seconds=latest_study_time.required_seconds,
+                    studied_reading_seconds=latest_study_time.studied_seconds,
+                    remaining_reading_seconds=latest_study_time.remaining_seconds,
+                    survey_status=latest_study_time.survey_status or course.survey_status,
                 )
+            except Exception as exc:
+                self._logger.warning("完課後讀取最新時數失敗：%s；%s", course.title, exc)
+                updated_course = course
+
+            is_done = updated_course.remaining_reading_seconds <= 0
+            completed_result = AutomationResult(
+                status=AutomationStatus.COURSE_SKIPPED if skipped else AutomationStatus.COURSE_COMPLETED,
+                message=(
+                    f"{course.title} 研習紀錄更新："
+                    f"門檻 {_format_minutes_seconds(updated_course.required_reading_seconds)}，"
+                    f"已閱讀 {_format_minutes_seconds(updated_course.studied_reading_seconds)}，"
+                    f"剩餘 {_format_minutes_seconds(updated_course.remaining_reading_seconds)}。"
+                    + ("（已達標）" if is_done else "")
+                ),
+                course_title=course.title,
+                remaining_seconds=updated_course.remaining_reading_seconds,
+                course_info=updated_course,
+            )
+            results.append(completed_result)
+            self._emit(emit_result, completed_result)
 
         if self._stop_event.is_set():
             stopped = self._automation.return_to_course_dashboard()
@@ -1698,6 +1912,10 @@ class PlaybackScheduler:
             segment_remaining = max(0, total_seconds - elapsed)
             course_remaining = max(0, course_remaining_at_start - elapsed)
             confirmed_count = self._automation.confirm_idle_reminders()
+
+            # Periodically ensure video is playing
+            if elapsed > 0 and elapsed % 10 == 0:
+                self._automation.ensure_video_playing()
             if confirmed_count:
                 self._emit(
                     emit_result,

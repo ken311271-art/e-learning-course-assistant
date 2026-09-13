@@ -402,6 +402,12 @@ class WebBridge(QObject):
         elif result.status == AutomationStatus.ASSESSMENT_ANSWERS_FILLED:
             notice = ("答案已填入", "已填入，請送出答案。")
 
+        if result.status in (AutomationStatus.COURSE_COMPLETED, AutomationStatus.COURSE_SKIPPED) and result.course_info is not None:
+            for idx, c in enumerate(self._study_courses):
+                if c.title == result.course_title or (c.course_url and c.course_url == result.course_info.course_url):
+                    self._study_courses[idx] = result.course_info
+                    break
+
         self._emit("automation_result", result=result)
         if notice is not None:
             self._emit("notice", title=notice[0], message=notice[1])

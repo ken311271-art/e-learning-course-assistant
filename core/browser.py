@@ -169,6 +169,7 @@ class BrowserController:
                 "--start-maximized",
                 "--autoplay-policy=no-user-gesture-required",
                 "--disable-features=IsolateOrigins,site-per-process",
+                "--mute-audio",  # [自訂設定] 全域靜音：播放影片時不發出聲音，但不影響時數累積
             ],
             # Use the actual screen size in headful Chrome. A fixed viewport
             # makes long assessment pages cramped despite a large window.
