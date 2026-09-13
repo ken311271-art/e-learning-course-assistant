@@ -283,6 +283,14 @@ class WebBridge(QObject):
         if course is not None and self._begin("enterAssessment", f"正在開啟測驗題目頁：{course.title}"):
             self._worker.open_assessment_attempt(course)
 
+    @Slot(int)
+    def autoAnswerAssessment(self, index: int) -> None:  # noqa: N802
+        """Query roddayeye exam bank and auto-fill answers into the assessment."""
+
+        course = self._require_index(index, self._assessment_courses, "請先選擇一門測驗課程。")
+        if course is not None and self._begin("autoAnswerAssessment", f"正在自題庫查詢「{course.title}」解答並自動填答..."):
+            self._worker.auto_answer_assessment(course)
+
     @Slot()
     def fillAssessmentAnswers(self) -> None:  # noqa: N802
         """Read AI answer strings from clipboard and fill them without submission."""

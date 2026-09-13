@@ -634,6 +634,220 @@ class CourseAutomation:
             page_title=self._page.title(),
         )
 
+    def fill_assessment_from_bank(self, course: CourseInfo) -> AutomationResult:
+        """Fill official exam answers from roddayeye exam bank into the open assessment."""
+
+        from core.exam_bank import ExamBankService
+
+        bank_service = ExamBankService(self._config)
+        bank_questions = bank_service.fetch_exam_answers(course.title)
+        if not bank_questions:
+            raise AutomationError(f"題庫未找到「{course.title}」的解答。")
+
+        serializable_bank = [
+            {
+                "question": q.question,
+                "correct_answers": list(q.correct_answers),
+                "is_true_false": q.is_true_false,
+                "is_multi": q.is_multi,
+            }
+            for q in bank_questions
+        ]
+
+        question_rows_selector = self._selectors.get("assessment.question_rows").value
+        result = None
+
+        for frame in self._page.frames:
+            try:
+                candidate = frame.evaluate(
+                    r"""
+                    ({bankQuestions, questionRowsSelector}) => {
+                        const clean = (text) => (text || "")
+                            .replace(/&nbsp;/gi, " ")
+                            .replace(/\s+/g, " ")
+                            .trim();
+
+                        const normalizeQuestion = (text) => clean(text)
+                            .replace(/^[0-9]+[.、)）\s]*/, "")
+                            .replace(/^\([0-9]+\)\s*/, "")
+                            .replace(/[^\w\u4e00-\u9fff]+/g, "");
+
+                        const normalizeOption = (text) => clean(text)
+                            .replace(/^\(?[A-Za-z0-9]+[\.\、\)\）\]\s]+\s*/, "")
+                            .replace(/[^\w\u4e00-\u9fff%○╳✕✗×✔✓]+/g, "")
+                            .toLowerCase();
+
+                        const questionSimilarity = (s1, s2) => {
+                            if (!s1 || !s2) return 0.0;
+                            if (s1 === s2) return 1.0;
+                            if (s1.includes(s2) || s2.includes(s1)) return 0.95;
+                            const b1 = new Set();
+                            for (let i = 0; i < s1.length - 1; i++) b1.add(s1.slice(i, i + 2));
+                            let matches = 0;
+                            for (let i = 0; i < s2.length - 1; i++) {
+                                if (b1.has(s2.slice(i, i + 2))) matches++;
+                            }
+                            const denom = Math.max(s1.length, s2.length) - 1;
+                            return denom > 0 ? matches / denom : 0.0;
+                        };
+
+                        const optionText = (item) => {
+                            const input = item.querySelector("input") || (item.tagName === "INPUT" ? item : null);
+                            const copy = item.cloneNode(true);
+                            copy.querySelectorAll("input").forEach((node) => node.remove());
+                            let text = clean(copy.innerText || copy.textContent);
+                            if (!text) {
+                                if (input?.value === "T") return "是";
+                                if (input?.value === "F") return "否";
+                            }
+                            return text;
+                        };
+
+                        const rows = Array.from(document.querySelectorAll(questionRowsSelector))
+                            .filter((row) => row.querySelector("ol, ul, input[type='radio'], input[type='checkbox']"));
+
+                        if (!rows.length) return null;
+
+                        const filled = [];
+                        const skipped = [];
+
+                        rows.forEach((row, rowIndex) => {
+                            const cells = row.querySelectorAll("td");
+                            const list = row.querySelector("ol, ul");
+                            const questionCell = cells.length >= 3 ? cells[2] : (cells.length >= 2 ? cells[1] : cells[0]);
+                            if (!questionCell) {
+                                skipped.push(rowIndex + 1);
+                                return;
+                            }
+
+                            const questionCopy = questionCell.cloneNode(true);
+                            questionCopy.querySelectorAll("ol, ul").forEach((n) => n.remove());
+                            const rawQ = clean(questionCopy.innerText || questionCopy.textContent);
+                            const normQ = normalizeQuestion(rawQ);
+
+                            // Find best matching bank question by similarity
+                            let bestMatch = null;
+                            let maxScore = 0;
+                            for (const bq of bankQuestions) {
+                                const normBq = normalizeQuestion(bq.question);
+                                const score = questionSimilarity(normQ, normBq);
+                                if (score > maxScore) {
+                                    maxScore = score;
+                                    bestMatch = bq;
+                                }
+                            }
+
+                            // Require at least 60% similarity for question match
+                            if (!bestMatch || maxScore < 0.60 || !bestMatch.correct_answers.length) {
+                                skipped.push(rowIndex + 1);
+                                return;
+                            }
+
+                            const options = list
+                                ? Array.from(list.querySelectorAll(":scope > li"))
+                                : Array.from(row.querySelectorAll("label, input[type='radio'], input[type='checkbox']"));
+
+                            let matchedAny = false;
+
+                            options.forEach((li, optIndex) => {
+                                const input = li.querySelector("input[type='radio']:not(:disabled), input[type='checkbox']:not(:disabled)")
+                                    || (li.tagName === "INPUT" ? li : null);
+                                if (!input) return;
+
+                                const text = optionText(li);
+                                const normOpt = normalizeOption(text);
+                                let shouldCheck = false;
+
+                                const isTF = bestMatch.is_true_false ||
+                                    bestMatch.correct_answers.some((a) => ["是", "否", "○", "╳", "t", "f"].includes(String(a).toLowerCase()));
+
+                                if (isTF) {
+                                    const wantsTrue = bestMatch.correct_answers.some((a) => {
+                                        const s = String(a).toUpperCase();
+                                        return s.includes("是") || s.includes("○") || s.includes("✔") || s.includes("✓") || s === "T" || s === "O";
+                                    });
+
+                                    let isTrueOption = input.value === "T" || normOpt.includes("是") || normOpt.includes("○") || normOpt.includes("✔") || normOpt.includes("✓") || normOpt === "t" || normOpt === "o";
+                                    let isFalseOption = input.value === "F" || normOpt.includes("否") || normOpt.includes("╳") || normOpt.includes("✕") || normOpt.includes("✗") || normOpt.includes("×") || normOpt === "f" || normOpt === "x";
+
+                                    // Positional fallback for standard 2-option True/False
+                                    if (!isTrueOption && !isFalseOption && options.length === 2) {
+                                        if (optIndex === 0) isTrueOption = true;
+                                        if (optIndex === 1) isFalseOption = true;
+                                    }
+
+                                    if (wantsTrue && isTrueOption) shouldCheck = true;
+                                    else if (!wantsTrue && isFalseOption) shouldCheck = true;
+                                } else {
+                                    for (const ans of bestMatch.correct_answers) {
+                                        const normAns = normalizeOption(ans);
+                                        if (!normAns) continue; // NEVER match empty strings!
+
+                                        if (normOpt === normAns) {
+                                            shouldCheck = true;
+                                            break;
+                                        }
+                                        // Substring match only allowed for non-numeric, longer phrases (>= 4 chars)
+                                        const isNumeric = /^\d+%?$/.test(normAns);
+                                        if (!isNumeric && normAns.length >= 4) {
+                                            if (normOpt.includes(normAns) || normAns.includes(normOpt)) {
+                                                shouldCheck = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (shouldCheck) {
+                                    if (!input.checked) {
+                                        try { input.click(); } catch(e) {}
+                                    }
+                                    input.checked = true;
+                                    input.dispatchEvent(new Event("input", {bubbles: true}));
+                                    input.dispatchEvent(new Event("change", {bubbles: true}));
+                                    matchedAny = true;
+                                }
+                            });
+
+                            if (matchedAny) {
+                                filled.push(rowIndex + 1);
+                            } else {
+                                skipped.push(rowIndex + 1);
+                            }
+                        });
+
+                        return {total: rows.length, filled, skipped};
+                    }
+                    """,
+                    {"bankQuestions": serializable_bank, "questionRowsSelector": question_rows_selector},
+                )
+                if candidate and candidate.get("total", 0) > 0:
+                    result = candidate
+                    break
+            except Exception:
+                continue
+
+        if result is None:
+            raise AutomationError("目前頁面找不到可填寫的測驗選項。")
+
+        total = result.get("total", 0)
+        filled = len(result.get("filled", []))
+        skipped = result.get("skipped", [])
+
+        message = f"已由「永無止盡的學習路」題庫自動填入 {filled}/{total} 題答案！"
+        if skipped:
+            message += f"（第 {', '.join(str(n) for n in skipped)} 題未完全比對成功，請手動確認）"
+        else:
+            message += "（全數精準比對成功，正確率 100%！）"
+
+        return AutomationResult(
+            status=AutomationStatus.ASSESSMENT_ANSWERS_FILLED,
+            message=message,
+            current_url=self._page.url,
+            page_title=self._page.title(),
+            course_title=course.title,
+        )
+
     def submit_assessment(self) -> AutomationResult:
         """Submit the open assessment and close its published-answer result page."""
 

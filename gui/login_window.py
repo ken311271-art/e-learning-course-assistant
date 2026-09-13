@@ -161,6 +161,12 @@ class BrowserWorker(QObject):
         self._commands.put(("submit_assessment", None))
 
     @Slot(object)
+    def auto_answer_assessment(self, course: CourseInfo) -> None:
+        """Queue opening a course assessment and auto-filling from exam bank."""
+
+        self._commands.put(("auto_answer_assessment", course))
+
+    @Slot(object)
     def enter_course(self, course: CourseInfo) -> None:
         """Queue entering a selected course."""
 
@@ -260,6 +266,8 @@ class BrowserWorker(QObject):
                 self._run_task(lambda: self._fill_assessment_answers_impl(payload))
             elif command == "submit_assessment":
                 self._run_task(self._submit_assessment_impl)
+            elif command == "auto_answer_assessment":
+                self._run_task(lambda: self._auto_answer_assessment_impl(payload))
             elif command == "enter_course":
                 self._run_task(lambda: self._enter_course_impl(payload))
             elif command == "inspect_player":
@@ -441,6 +449,30 @@ class BrowserWorker(QObject):
 
         automation = CourseAutomation(page=self._browser.page, config=self._config)
         result = automation.submit_assessment()
+        self._browser.set_active_page(automation.page)
+        self.automation_result.emit(result)
+        self.state_changed.emit(self._browser.refresh_state(result.message))
+
+    def _auto_answer_assessment_impl(self, payload: object | None) -> None:
+        """Open assessment and auto-fill from roddayeye exam bank."""
+
+        if not isinstance(payload, CourseInfo):
+            raise AutomationError("請先選擇一門可測驗課程。")
+        if self._browser is None or not self._browser.is_running:
+            raise AutomationError("請先啟動瀏覽器並完成登入。")
+
+        automation = CourseAutomation(page=self._browser.page, config=self._config)
+
+        # If not currently on an exam page, open it first
+        is_on_exam = any("/learn/exam/" in (f.url or "") and "exam_list.php" not in (f.url or "") for f in self._browser.page.frames)
+        if not is_on_exam:
+            self._logger.info("尚未進入測驗題目頁，先開啟測驗：%s", payload.title)
+            open_result = automation.open_assessment_attempt(payload)
+            self._browser.set_active_page(automation.page)
+            self.automation_result.emit(open_result)
+
+        # Fill answers directly from exam bank
+        result = automation.fill_assessment_from_bank(payload)
         self._browser.set_active_page(automation.page)
         self.automation_result.emit(result)
         self.state_changed.emit(self._browser.refresh_state(result.message))

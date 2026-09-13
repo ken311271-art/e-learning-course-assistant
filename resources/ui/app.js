@@ -152,6 +152,7 @@ function updateControls() {
 
   byId("survey-button").disabled = !loginReady;
   byId("enter-assessment-button").disabled = !loginReady || state.selectedAssessment < 0;
+  byId("auto-answer-button").disabled = !loginReady || state.selectedAssessment < 0 || state.busy;
   byId("fill-assessment-button").disabled = !loginReady;
   byId("submit-assessment-button").disabled = !loginReady;
   updateSystemStatus();
@@ -630,6 +631,7 @@ function bindActions() {
 
   byId("survey-button").addEventListener("click", () => callBridge("processSurveys"));
   byId("enter-assessment-button").addEventListener("click", () => callBridge("enterAssessmentCourse", state.selectedAssessment));
+  byId("auto-answer-button").addEventListener("click", () => callBridge("autoAnswerAssessment", state.selectedAssessment));
   byId("fill-assessment-button").addEventListener("click", () => callBridge("fillAssessmentAnswers"));
   byId("submit-assessment-button").addEventListener("click", () => callBridge("submitAssessment"));
   byId("notice-close-button").addEventListener("click", hideNotice);
