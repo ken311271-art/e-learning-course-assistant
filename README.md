@@ -17,7 +17,7 @@ Windows 桌面工具，使用 Python、PySide6 與 Playwright 協助操作 E 等
 
 ## 下載離線版
 
-請到 [GitHub Releases](https://github.com/yaotong110329/e-learning-course-assistant/releases/latest)
+請到 [GitHub Releases](https://github.com/ken311271-art/e-learning-course-assistant/releases/latest)
 下載最新版 Windows 離線 ZIP。完整解壓縮後執行 `離線啟動.bat`。
 
 ## 原始碼執行
